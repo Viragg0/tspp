@@ -1,0 +1,92 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <mpi.h>
+
+int main(int argc, char *argv[]) {
+    int rank, size;
+    int count; // Количество случайных чисел
+    int number; // Для приема чисел
+    int sum = 0; // Сумма чисел
+    int total_sum = 0; // Итоговая сумма
+    MPI_Status status;
+    
+    // Инициализация MPI
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    
+    // Проверяем, что у нас ровно 2 процесса
+    if (size != 2) {
+        if (rank == 0) {
+            printf("Программа требует ровно 2 процесса. Запустите с 2 процессами.\n");
+            printf("Используйте: mpirun -np 2 %s\n", argv[0]);
+        }
+        MPI_Finalize();
+        return 1;
+    }
+    
+    if (rank == 0) {
+        // Процесс 0: генератор чисел
+        printf("Введите количество случайных чисел для генерации: ");
+        fflush(stdout);
+        scanf("%d", &count);
+        
+        // Проверка корректности ввода
+        if (count <= 0) {
+            printf("Количество чисел должно быть положительным.\n");
+            MPI_Send(&count, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
+            MPI_Finalize();
+            return 1;
+        }
+        
+        // Отправляем количество чисел процессу 1
+        MPI_Send(&count, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
+        
+        // Инициализация генератора случайных чисел
+        srand(time(NULL) + rank);
+        
+        printf("Процесс 0 генерирует %d случайных чисел:\n", count);
+        for (int i = 0; i < count; i++) {
+            int random_num = rand() % 100; // Генерация числа от 0 до 99
+            printf("Число %d: %d\n", i + 1, random_num);
+            
+            // Отправляем каждое число процессу 1
+            MPI_Send(&random_num, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
+        }
+        
+        // Получаем сумму от процесса 1
+        MPI_Recv(&total_sum, 1, MPI_INT, 1, 0, MPI_COMM_WORLD, &status);
+        
+        printf("\nПроцесс 0 получил итоговую сумму: %d\n", total_sum);
+        
+    } else if (rank == 1) {
+        // Процесс 1: суммирующий процесс
+        
+        // Получаем количество чисел
+        MPI_Recv(&count, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+        
+        if (count <= 0) {
+            printf("Процесс 1: получено некорректное количество чисел.\n");
+            MPI_Finalize();
+            return 1;
+        }
+        
+        printf("Процесс 1 получил задание суммировать %d чисел.\n", count);
+        
+        // Получаем и суммируем числа
+        for (int i = 0; i < count; i++) {
+            MPI_Recv(&number, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+            printf("Процесс 1 получил число %d: %d\n", i + 1, number);
+            sum += number;
+        }
+        
+        printf("Процесс 1 вычислил сумму: %d\n", sum);
+        
+        // Отправляем сумму обратно процессу 0
+        MPI_Send(&sum, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+    }
+    
+    MPI_Finalize();
+    return 0;
+}
